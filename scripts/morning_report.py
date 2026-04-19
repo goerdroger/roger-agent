@@ -46,13 +46,6 @@ def get_gmail_creds():
 def fetch_videos():
     creds = get_youtube_creds()
     yt = build("youtube", "v3", credentials=creds)
-    res = yt.videos().list(
-        part="snippet,statistics",
-        mine=True,
-        myRating=None,
-        maxResults=10,
-    )
-    # Use search instead
     search_res = yt.search().list(
         part="id",
         forMine=True,
