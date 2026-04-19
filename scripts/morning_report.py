@@ -1,15 +1,19 @@
 import os
-import json
+import base64
+import re
 import requests
+import anthropic
 from datetime import datetime, timedelta, timezone
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
+from bs4 import BeautifulSoup
 
 DISCORD_WEBHOOK = os.environ["DISCORD_WEBHOOK"]
 CLIENT_ID = os.environ["GOOGLE_CLIENT_ID"]
 CLIENT_SECRET = os.environ["GOOGLE_CLIENT_SECRET"]
 YOUTUBE_REFRESH_TOKEN = os.environ["YOUTUBE_REFRESH_TOKEN"]
 GMAIL_REFRESH_TOKEN = os.environ["GMAIL_REFRESH_TOKEN"]
+ANTHROPIC_API_KEY = os.environ["ANTHROPIC_API_KEY"]
 
 TOKEN_URI = "https://oauth2.googleapis.com/token"
 
@@ -91,6 +95,49 @@ def fetch_comments(video_id):
     return comments
 
 
+def extract_body(payload):
+    """遞迴抽取郵件純文字內容"""
+    if payload.get("mimeType") == "text/plain":
+        data = payload.get("body", {}).get("data", "")
+        return base64.urlsafe_b64decode(data + "==").decode("utf-8", errors="ignore") if data else ""
+    if payload.get("mimeType") == "text/html":
+        data = payload.get("body", {}).get("data", "")
+        if data:
+            html = base64.urlsafe_b64decode(data + "==").decode("utf-8", errors="ignore")
+            return BeautifulSoup(html, "html.parser").get_text(separator="\n")
+    for part in payload.get("parts", []):
+        result = extract_body(part)
+        if result:
+            return result
+    return ""
+
+
+def summarize_emails(emails):
+    if not emails:
+        return []
+    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+    summaries = []
+    for e in emails:
+        body_preview = e["body"][:1500]
+        prompt = f"""以下是一封郵件，請用一句繁體中文摘要它的重點（不超過 40 字）：
+
+寄件人：{e['from']}
+主旨：{e['subject']}
+內容：
+{body_preview}"""
+        msg = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=100,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        summaries.append({
+            "from": e["from"],
+            "subject": e["subject"],
+            "summary": msg.content[0].text.strip(),
+        })
+    return summaries
+
+
 def fetch_gmail():
     creds = get_gmail_creds()
     gmail = build("gmail", "v1", credentials=creds)
@@ -98,13 +145,13 @@ def fetch_gmail():
     res = gmail.users().messages().list(userId="me", q=query, maxResults=10).execute()
     messages = []
     for msg in res.get("messages", []):
-        detail = gmail.users().messages().get(userId="me", id=msg["id"], format="metadata",
-                                               metadataHeaders=["From", "Subject", "Date"]).execute()
+        detail = gmail.users().messages().get(userId="me", id=msg["id"], format="full").execute()
         headers = {h["name"]: h["value"] for h in detail["payload"]["headers"]}
+        body = extract_body(detail["payload"])
         messages.append({
             "from": headers.get("From", ""),
             "subject": headers.get("Subject", ""),
-            "date": headers.get("Date", ""),
+            "body": body,
         })
     return messages
 
@@ -142,6 +189,7 @@ def main():
         all_comments[vid] = fetch_comments(vid)
 
     emails = fetch_gmail()
+    email_summaries = summarize_emails(emails)
     events = fetch_calendar()
 
     # Build message 1: videos + comments
@@ -168,10 +216,12 @@ def main():
     msg1 = "\n".join(lines1)[:1900]
 
     # Build message 2: gmail + calendar
-    lines2 = ["### 📧 Gmail 重要信件"]
-    if emails:
-        for e in emails:
-            lines2.append(f"- **{e['subject']}** | {e['from'][:30]} | {e['date'][:16]}")
+    lines2 = ["### 📧 Gmail 未讀信件"]
+    if email_summaries:
+        for e in email_summaries:
+            sender = re.sub(r"<.*?>", "", e["from"]).strip()
+            lines2.append(f"- **{e['subject']}**（{sender}）")
+            lines2.append(f"  {e['summary']}")
     else:
         lines2.append("無新信件")
 
