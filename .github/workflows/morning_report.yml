@@ -1,7 +1,9 @@
 name: LYC 早報
 
 on:
-  workflow_dispatch:  # 由 cron-job.org 每天 09:30 台灣時間觸發
+  schedule:
+    - cron: '0 0 * * *'  # 每天 08:00 台灣時間（UTC+8 = 00:00 UTC）
+  workflow_dispatch:  # 手動觸發
 
 jobs:
   send-report:
