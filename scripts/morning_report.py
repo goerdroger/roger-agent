@@ -47,6 +47,9 @@ def get_gmail_creds():
     )
 
 
+five_days_ago = (now - timedelta(days=5)).isoformat()
+
+
 def fetch_videos():
     creds = get_youtube_creds()
     yt = build("youtube", "v3", credentials=creds)
@@ -55,6 +58,7 @@ def fetch_videos():
         forMine=True,
         type="video",
         order="date",
+        publishedAfter=five_days_ago,
         maxResults=10,
     ).execute()
     video_ids = [item["id"]["videoId"] for item in search_res.get("items", [])]
@@ -64,9 +68,7 @@ def fetch_videos():
         part="snippet,statistics",
         id=",".join(video_ids),
     ).execute()
-    videos = detail_res.get("items", [])
-    videos.sort(key=lambda v: int(v["statistics"].get("viewCount", 0)), reverse=True)
-    return videos[:5]
+    return detail_res.get("items", [])
 
 
 def fetch_comments(video_id):
@@ -193,7 +195,7 @@ def main():
     events = fetch_calendar()
 
     # Build message 1: videos + comments
-    lines1 = [f"## 📋 LYC 早報｜{today_str}", "", "### 🎬 近期影片（Top 5 by 觀看數）"]
+    lines1 = [f"## 📋 LYC 早報｜{today_str}", "", "### 🎬 近五天影片"]
     for v in videos:
         s = v["snippet"]
         st = v["statistics"]
