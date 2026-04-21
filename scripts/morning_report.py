@@ -53,15 +53,14 @@ five_days_ago = (now - timedelta(days=5)).isoformat()
 def fetch_videos():
     creds = get_youtube_creds()
     yt = build("youtube", "v3", credentials=creds)
-    search_res = yt.search().list(
-        part="id",
-        forMine=True,
-        type="video",
-        order="date",
-        publishedAfter=five_days_ago,
+    channel_res = yt.channels().list(part="contentDetails", mine=True).execute()
+    uploads_id = channel_res["items"][0]["contentDetails"]["relatedPlaylists"]["uploads"]
+    playlist_res = yt.playlistItems().list(
+        part="contentDetails",
+        playlistId=uploads_id,
         maxResults=10,
     ).execute()
-    video_ids = [item["id"]["videoId"] for item in search_res.get("items", [])]
+    video_ids = [item["contentDetails"]["videoId"] for item in playlist_res.get("items", [])]
     if not video_ids:
         return []
     detail_res = yt.videos().list(
