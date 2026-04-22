@@ -2,8 +2,11 @@ name: LYC 早報
 
 on:
   schedule:
-    - cron: '0 0 * * *'  # 每天 08:00 台灣時間（UTC+8 = 00:00 UTC）
-  workflow_dispatch:  # 手動觸發
+    - cron: '0 1 * * *'  # 每天 09:00 台灣時間（UTC+8 = 01:00 UTC）
+  workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   send-report:
@@ -27,3 +30,13 @@ jobs:
           GMAIL_REFRESH_TOKEN: ${{ secrets.GMAIL_REFRESH_TOKEN }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: python scripts/morning_report.py
+
+      - name: 部署到 GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./public
+          publish_branch: gh-pages
+          commit_message: "早報更新：${{ env.TODAY }}"
+        env:
+          TODAY: $(date +'%Y-%m-%d')
